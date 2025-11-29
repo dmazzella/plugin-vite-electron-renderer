@@ -18,9 +18,9 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/user/plugin-vite-electron-renderer.git"
+    "url": "git+https://github.com/dmazzella/plugin-vite-electron-renderer.git"
   },
-  "author": "Your Name",
+  "author": "Damiano Mazzella <damianomazzella@gmail.com>",
   "license": "MIT",
   "keywords": [
     "vite",
