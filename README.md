@@ -254,6 +254,38 @@ npx electron-rebuild
 
 `ipcRenderer` doesn't work in Web Workers - this is an Electron limitation. Use `postMessage` to communicate between Worker and renderer, then use `ipcRenderer` in the renderer.
 
+## Development
+
+To develop or test the plugin locally:
+
+```bash
+# Clone and install
+git clone https://github.com/user/plugin-vite-electron-renderer.git
+cd plugin-vite-electron-renderer
+npm install
+
+# Build the plugin
+npm run build
+
+# Run tests
+npm run test
+
+# Development mode (watch)
+npm run dev
+```
+
+### Running Examples
+
+```bash
+# First build the plugin
+npm run build
+
+# Then run an example
+cd examples/basic
+npm install
+npm run dev
+```
+
 ## License
 
 MIT

@@ -2,15 +2,15 @@
  * Code snippets generator for module polyfills
  */
 
-import { getMainOnlyApis } from './constants.js'
+import { getMainOnlyApis } from "./constants.js";
 
 /**
  * Generate the electron polyfill code for the renderer process
  * This creates a module that properly exports electron APIs with ipcRenderer Worker support
  */
 export function generateElectronSnippet(): string {
-  const mainOnlyApis = getMainOnlyApis()
-  
+  const mainOnlyApis = getMainOnlyApis();
+
   return `
 /**
  * Electron polyfill for Vite bundling
@@ -64,20 +64,25 @@ export const webFrame = electron.webFrame;
 export const deprecate = electron.deprecate;
 
 // Main process APIs - exported as undefined for compatibility with packages that check for them
-${mainOnlyApis.map((name) => `export const ${name} = electron.${name};`).join('\n')}
-`.trim()
+${mainOnlyApis
+  .map((name) => `export const ${name} = electron.${name};`)
+  .join("\n")}
+`.trim();
 }
 
 /**
  * Generate ESM wrapper snippet for a CommonJS module
  * Uses require() to load the module and re-exports with ESM syntax
  */
-export function generateCjsWrapperSnippet(moduleName: string, moduleExports: string[]): string {
+export function generateCjsWrapperSnippet(
+  moduleName: string,
+  moduleExports: string[]
+): string {
   const exportStatements = moduleExports
-    .filter((exp) => exp !== 'default')
+    .filter((exp) => exp !== "default")
     .map((exp) => `export const ${exp} = _module.${exp};`)
-    .join('\n')
-  
+    .join("\n");
+
   return `
 /**
  * ESM wrapper for ${moduleName}
@@ -93,18 +98,21 @@ export default _module.default || _module;
 
 // Named exports
 ${exportStatements}
-`.trim()
+`.trim();
 }
 
 /**
  * Generate ESM wrapper snippet for a pre-bundled module
  */
-export function generatePreBundledSnippet(requirePath: string, moduleExports: string[]): string {
+export function generatePreBundledSnippet(
+  requirePath: string,
+  moduleExports: string[]
+): string {
   const exportStatements = moduleExports
-    .filter((exp) => exp !== 'default')
+    .filter((exp) => exp !== "default")
     .map((exp) => `export const ${exp} = _module.${exp};`)
-    .join('\n')
-  
+    .join("\n");
+
   return `
 /**
  * ESM wrapper for pre-bundled module
@@ -120,7 +128,7 @@ export default _module.default || _module;
 
 // Named exports
 ${exportStatements}
-`.trim()
+`.trim();
 }
 
 /**
@@ -141,9 +149,12 @@ export default _module.default || _module;
 
 // Re-export all enumerable properties
 const _keys = Object.keys(_module);
-${Array.from({ length: 50 }, (_, i) => `
+${Array.from(
+  { length: 50 },
+  (_, i) => `
 export const __export_${i}__ = _keys[${i}] ? _module[_keys[${i}]] : undefined;
-`).join('')}
+`
+).join("")}
 
 // Common Node.js module exports
 export const {
@@ -173,7 +184,7 @@ export const {
   // process
   cwd, env, argv, exit, nextTick,
 } = _module;
-`.trim()
+`.trim();
 }
 
 /**
@@ -183,9 +194,9 @@ export const {
 export function getModuleExports(moduleName: string): string[] {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require(moduleName)
-    return Object.getOwnPropertyNames(mod)
+    const mod = require(moduleName);
+    return Object.getOwnPropertyNames(mod);
   } catch {
-    return ['default']
+    return ["default"];
   }
 }

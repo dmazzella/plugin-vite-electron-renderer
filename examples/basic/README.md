@@ -12,14 +12,16 @@ This example demonstrates basic usage of `plugin-vite-electron-renderer`.
 
 ```bash
 # From the plugin root directory
-pnpm install
+cd C:\Users\damianomazzella\source\repos\plugin-vite-electron-renderer
+npm install
+npm run build
 
 # Navigate to example
 cd examples/basic
-pnpm install
+npm install
 
 # Run in development
-pnpm dev
+npm run dev
 ```
 
 ## Project Structure
