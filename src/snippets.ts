@@ -132,10 +132,28 @@ ${exportStatements}
 }
 
 /**
- * Generate simple ESM wrapper for Node.js builtins
+ * Generate ESM wrapper for Node.js builtins
+ * Dynamically exports all members from the module at runtime
  */
 export function generateBuiltinSnippet(moduleName: string): string {
-  // For node builtins, we need to get the actual exports dynamically
+  // Get actual exports from the module at build time
+  let moduleExports: string[] = [];
+  
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require(moduleName);
+    moduleExports = Object.keys(mod).filter(
+      (key) => key !== "default" && key !== "__esModule" && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key)
+    );
+  } catch {
+    // Fallback - module not available at build time
+    moduleExports = [];
+  }
+
+  const exportStatements = moduleExports
+    .map((exp) => `export const ${exp} = _module.${exp};`)
+    .join("\n");
+
   return `
 /**
  * ESM wrapper for Node.js builtin: ${moduleName}
@@ -145,45 +163,11 @@ export function generateBuiltinSnippet(moduleName: string): string {
 const _require = require;
 const _module = _require("${moduleName}");
 
+// Default export
 export default _module.default || _module;
 
-// Re-export all enumerable properties
-const _keys = Object.keys(_module);
-${Array.from(
-  { length: 50 },
-  (_, i) => `
-export const __export_${i}__ = _keys[${i}] ? _module[_keys[${i}]] : undefined;
-`
-).join("")}
-
-// Common Node.js module exports
-export const {
-  // fs
-  readFile, readFileSync, writeFile, writeFileSync, existsSync, mkdirSync, readdirSync,
-  statSync, unlinkSync, renameSync, copyFileSync, appendFileSync, createReadStream, createWriteStream,
-  // path
-  join, resolve, dirname, basename, extname, relative, isAbsolute, normalize, parse, format, sep, delimiter,
-  // events
-  EventEmitter,
-  // stream
-  Readable, Writable, Transform, Duplex, PassThrough, pipeline, finished,
-  // util
-  promisify, inspect, format: utilFormat, deprecate: utilDeprecate,
-  // crypto
-  createHash, createHmac, randomBytes, randomUUID,
-  // child_process
-  spawn, exec, execSync, execFile, fork,
-  // os
-  platform, arch, homedir, tmpdir, hostname, cpus, totalmem, freemem,
-  // url
-  URL, URLSearchParams, fileURLToPath, pathToFileURL,
-  // http/https
-  request, get, createServer,
-  // buffer
-  Buffer,
-  // process
-  cwd, env, argv, exit, nextTick,
-} = _module;
+// Named exports
+${exportStatements}
 `.trim();
 }
 

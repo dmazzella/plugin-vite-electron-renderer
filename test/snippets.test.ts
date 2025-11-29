@@ -55,7 +55,7 @@ describe('snippets', () => {
   })
   
   describe('generateBuiltinSnippet', () => {
-    it('should generate wrapper for Node.js builtin', () => {
+    it('should generate wrapper for Node.js fs builtin', () => {
       const snippet = generateBuiltinSnippet('fs')
       
       // Should use require
@@ -65,9 +65,53 @@ describe('snippets', () => {
       expect(snippet).toContain('export default')
       
       // Should have common fs exports
-      expect(snippet).toContain('readFile')
-      expect(snippet).toContain('writeFile')
-      expect(snippet).toContain('existsSync')
+      expect(snippet).toContain('export const readFile')
+      expect(snippet).toContain('export const writeFile')
+      expect(snippet).toContain('export const existsSync')
+      expect(snippet).toContain('export const readFileSync')
+      expect(snippet).toContain('export const writeFileSync')
+    })
+
+    it('should generate wrapper for Node.js crypto builtin', () => {
+      const snippet = generateBuiltinSnippet('crypto')
+      
+      // Should use require
+      expect(snippet).toContain('require("crypto")')
+      
+      // Should have default export
+      expect(snippet).toContain('export default')
+      
+      // Should have crypto exports
+      expect(snippet).toContain('export const createHash')
+      expect(snippet).toContain('export const randomBytes')
+    })
+
+    it('should generate wrapper for Node.js path builtin', () => {
+      const snippet = generateBuiltinSnippet('path')
+      
+      // Should use require
+      expect(snippet).toContain('require("path")')
+      
+      // Should have default export
+      expect(snippet).toContain('export default')
+      
+      // Should have path exports
+      expect(snippet).toContain('export const join')
+      expect(snippet).toContain('export const resolve')
+      expect(snippet).toContain('export const dirname')
+    })
+
+    it('should generate wrapper for Node.js module builtin', () => {
+      const snippet = generateBuiltinSnippet('module')
+      
+      // Should use require
+      expect(snippet).toContain('require("module")')
+      
+      // Should have default export
+      expect(snippet).toContain('export default')
+      
+      // Should have module exports
+      expect(snippet).toContain('export const createRequire')
     })
   })
 })
