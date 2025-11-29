@@ -292,4 +292,4 @@ MIT
 
 ## Credits
 
-Inspired by [vite-plugin-electron-renderer](https://github.com/electron-vite/vite-plugin-electron-renderer) by 草鞋没号.
+Inspired by [vite-plugin-electron-renderer](https://github.com/electron-vite/vite-plugin-electron-renderer) by Leo Wang(草鞋没号).
