@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { builtinModules } from 'node:module'
-import { resolveConfig, type UserConfig } from 'vite'
+import { resolveConfig, type UserConfig, type Alias } from 'vite'
 import type { OutputOptions, RollupOptions } from 'rollup'
 import electronRenderer from '../src/index.js'
 
@@ -9,6 +9,14 @@ const builtins = [
   ...builtinModules.filter((m) => !m.startsWith('_')),
   ...builtinModules.filter((m) => !m.startsWith('_')).map((mod) => `node:${mod}`),
 ]
+
+// Helper to filter out Vite internal aliases
+function excludeViteAlias(aliases: readonly Alias[]): Alias[] {
+  return aliases.filter((a) => {
+    const findStr = typeof a.find === 'string' ? a.find : a.find.toString()
+    return !findStr.includes('@vite')
+  })
+}
 
 describe('plugin config', () => {
   it('should set base to ./ by default', async () => {
@@ -80,9 +88,7 @@ describe('alias configuration', () => {
       plugins: [electronRenderer()],
     }, 'build')
     
-    const aliases = config.resolve.alias.filter(
-      (a: { find: RegExp }) => !a.find.toString().includes('@vite')
-    )
+    const aliases = excludeViteAlias(config.resolve.alias as readonly Alias[])
     
     // Should have at least the builtin alias
     expect(aliases.length).toBeGreaterThanOrEqual(1)
@@ -109,9 +115,7 @@ describe('alias configuration', () => {
       ],
     }, 'serve')
     
-    const aliases = config.resolve.alias.filter(
-      (a: { find: RegExp }) => !a.find.toString().includes('@vite')
-    )
+    const aliases = excludeViteAlias(config.resolve.alias as readonly Alias[])
     
     // Should have builtin alias + resolve alias
     expect(aliases.length).toBe(2)
@@ -135,9 +139,7 @@ describe('alias configuration', () => {
       ],
     }, 'build')
     
-    const aliases = config.resolve.alias.filter(
-      (a: { find: RegExp }) => !a.find.toString().includes('@vite')
-    )
+    const aliases = excludeViteAlias(config.resolve.alias as readonly Alias[])
     
     // Should have builtin alias + resolve alias (only cjs)
     expect(aliases.length).toBe(2)
