@@ -1,6 +1,6 @@
 {
   "name": "plugin-vite-electron-renderer",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Modern Vite plugin for Electron Renderer - Support Node.js API in Electron Renderer process",
   "type": "module",
   "main": "./dist/index.cjs",
