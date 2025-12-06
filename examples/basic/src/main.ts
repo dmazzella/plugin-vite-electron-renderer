@@ -1,9 +1,18 @@
 // Example: Using Node.js and Electron APIs in renderer
 import { ipcRenderer, shell } from "electron";
+
+// Standard Node.js builtins
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
+
+// Subpath imports - testing dynamic resolution
+import { readFile, writeFile, stat } from "node:fs/promises";
+import { join as posixJoin } from "node:path/posix";
+import { join as win32Join } from "node:path/win32";
+import { setTimeout as setTimeoutPromise } from "node:timers/promises";
+import { createRequire } from "node:module";
 
 // Display Node.js info
 const nodeInfoEl = document.getElementById("node-info");
@@ -33,32 +42,56 @@ process.versions.chrome: ${process.versions.chrome}
 process.versions.node: ${process.versions.node}`;
 }
 
-// File System demo
+// File System demo with fs/promises
 const fsDemoEl = document.getElementById("fs-demo");
 if (fsDemoEl) {
-  try {
-    // Create a temp file
-    const tempFile = path.join(os.tmpdir(), "vite-electron-test.txt");
-    const content = `Hello from Vite + Electron!\nCreated at: ${new Date().toISOString()}`;
+  (async () => {
+    try {
+      // Test path/posix and path/win32
+      const posixPath = posixJoin("folder", "subfolder", "file.txt");
+      const win32Path = win32Join("folder", "subfolder", "file.txt");
 
-    fs.writeFileSync(tempFile, content, "utf-8");
-    const readContent = fs.readFileSync(tempFile, "utf-8");
+      // Test timers/promises
+      await setTimeoutPromise(100);
 
-    fsDemoEl.innerHTML = `<span class="success">✓ File System working!</span>
+      // Test module.createRequire
+      const requireAvailable = typeof createRequire === "function";
 
-Created file: ${tempFile}
-Content:
+      // Create a temp file using fs/promises
+      const tempFile = path.join(
+        os.tmpdir(),
+        "vite-electron-test-promises.txt"
+      );
+      const content = `Hello from Vite + Electron!\nCreated at: ${new Date().toISOString()}`;
+
+      await writeFile(tempFile, content, "utf-8");
+      const readContent = await readFile(tempFile, "utf-8");
+      const fileStat = await stat(tempFile);
+
+      fsDemoEl.innerHTML = `<span class="success">✓ File System & Subpaths working!</span>
+
+<strong>Subpath imports test:</strong>
+  fs/promises: ✓ (readFile, writeFile, stat)
+  path/posix: ✓ (${posixPath})
+  path/win32: ✓ (${win32Path})
+  timers/promises: ✓ (setTimeout)
+  module: ✓ (createRequire: ${requireAvailable})
+
+<strong>File created:</strong> ${tempFile}
+<strong>Content:</strong>
 ${readContent}
 
-File stats:
-  Size: ${fs.statSync(tempFile).size} bytes
-  Created: ${fs.statSync(tempFile).birthtime.toISOString()}`;
+<strong>File stats:</strong>
+  Size: ${fileStat.size} bytes
+  Created: ${fileStat.birthtime.toISOString()}`;
 
-    // Cleanup
-    fs.unlinkSync(tempFile);
-  } catch (error) {
-    fsDemoEl.innerHTML = `<span class="error">✗ Error: ${error}</span>`;
-  }
+      // Cleanup
+      fs.unlinkSync(tempFile);
+    } catch (error) {
+      fsDemoEl.innerHTML = `<span class="error">✗ Error: ${error}</span>`;
+      console.error(error);
+    }
+  })();
 }
 
 // Log to console

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Electron + Vite</title>
+  <title>Electron + Vite - Plugin Test</title>
   <style>
     * {
       margin: 0;
@@ -18,15 +18,19 @@
       padding: 2rem;
     }
     .container {
-      max-width: 800px;
+      max-width: 900px;
       margin: 0 auto;
     }
     h1 {
       font-size: 2.5rem;
-      margin-bottom: 1rem;
+      margin-bottom: 0.5rem;
       background: linear-gradient(90deg, #00d9ff, #00ff88);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
+    }
+    .subtitle {
+      color: #888;
+      margin-bottom: 2rem;
     }
     .card {
       background: rgba(255, 255, 255, 0.05);
@@ -45,24 +49,28 @@
       padding: 1rem;
       border-radius: 8px;
       overflow-x: auto;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
     .success {
       color: #00ff88;
+      font-weight: bold;
     }
     .error {
       color: #ff6b6b;
+      font-weight: bold;
     }
-    #output {
-      white-space: pre-wrap;
-      word-break: break-all;
+    strong {
+      color: #00d9ff;
     }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>⚡ Electron + Vite</h1>
-    <p>Using <strong>plugin-vite-electron-renderer</strong></p>
+    <p class="subtitle">Testing <strong>plugin-vite-electron-renderer</strong> with subpath imports</p>
     
     <div class="card">
       <h2>📦 Node.js APIs</h2>
@@ -75,7 +83,7 @@
     </div>
     
     <div class="card">
-      <h2>📄 File System Demo</h2>
+      <h2>📄 File System & Subpath Imports Demo</h2>
       <pre id="fs-demo">Loading...</pre>
     </div>
   </div>
