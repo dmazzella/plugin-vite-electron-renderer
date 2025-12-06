@@ -13,7 +13,8 @@ describe("snippets", () => {
       expect(snippet).toContain("export const ipcRenderer");
       expect(snippet).toContain("export const clipboard");
       expect(snippet).toContain("export const shell");
-      expect(snippet).toContain("export default");
+      // Check for default export (can be either "export default" or "export { x as default }"
+      expect(snippet).toMatch(/export\s+(default|\{\s*electron\s+as\s+default\s*\})/);
     });
   });
 
