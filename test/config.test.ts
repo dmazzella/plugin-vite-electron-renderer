@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { builtinModules } from "node:module";
-import { resolveConfig, type UserConfig } from "vite";
-import type { OutputOptions, RollupOptions } from "rollup";
+import { resolveConfig } from "vite";
+import type { OutputOptions } from "rollup";
 import electronRenderer from "../src/index.js";
 
 const builtins = [
@@ -50,7 +50,7 @@ describe("plugin config", () => {
     expect(ignore).toContain("path");
   });
 
-  it("should add aliases for builtins", async () => {
+  it("should exclude builtins from optimizeDeps", async () => {
     const config = await resolveConfig(
       {
         configFile: false,
@@ -59,16 +59,12 @@ describe("plugin config", () => {
       "build"
     );
 
-    const aliases = config.resolve.alias as { find: RegExp }[];
-    const builtinAlias = aliases.find(
-      (a) => a.find instanceof RegExp && a.find.test("electron")
-    );
+    const exclude = config.optimizeDeps.exclude ?? [];
 
-    expect(builtinAlias).toBeDefined();
-
-    // Should match all builtins
+    // Should exclude electron and all Node.js builtins
+    expect(exclude).toContain("electron");
     for (const builtin of builtins) {
-      expect(builtinAlias!.find.test(builtin)).toBe(true);
+      expect(exclude).toContain(builtin);
     }
   });
 });
