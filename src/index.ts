@@ -398,7 +398,7 @@ export default function electronRenderer(
 
       // Apply all configuration modifications
       modifyAlias(config, aliases);
-      modifyOptimizeDeps(config, resolveKeys);
+      modifyOptimizeDeps(config, [...electronBuiltins, ...resolveKeys]);
       adaptElectron(config);
     },
   };
