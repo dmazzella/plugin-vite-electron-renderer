@@ -31,11 +31,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { builtinModules } from "node:module";
-import type { Alias, UserConfig } from "vite";
+import type { Plugin, UserConfig } from "vite";
 import { normalizePath } from "vite";
 import esbuild from "esbuild";
 
-import type { ElectronRendererOptions } from "./types.js";
+import type { ElectronRendererOptions, ModuleResolveConfig } from "./types.js";
 import {
   generateElectronSnippet,
   generateModuleSnippet,
@@ -66,6 +66,11 @@ const electronBuiltins = [
   ...builtins,
   ...builtins.map((module) => `node:${module}`),
 ];
+
+/**
+ * Set of builtin module names for fast lookup in resolveId
+ */
+const builtinSet = new Set(["electron", ...builtins]);
 
 /** Plugin identification name used by Vite */
 const PLUGIN_NAME = "plugin-vite-electron-renderer";
@@ -128,17 +133,8 @@ function ensureDir(dirname: string): void {
 /**
  * Ensure a path starts with ./ for relative imports
  *
- * Node.js and bundlers require relative paths to start with ./ or ../
- * to distinguish them from package names. This function normalizes
- * paths that might not have this prefix.
- *
  * @param p - Path to normalize
  * @returns Path with ./ prefix if needed
- *
- * @example
- * relativeify('foo/bar.js') // './foo/bar.js'
- * relativeify('./foo/bar.js') // './foo/bar.js' (unchanged)
- * relativeify('../foo/bar.js') // '../foo/bar.js' (unchanged)
  */
 function relativeify(p: string): string {
   if (p.startsWith("./") || p.startsWith("../") || path.isAbsolute(p)) {
@@ -151,11 +147,13 @@ function relativeify(p: string): string {
  * Main Vite plugin factory function for Electron Renderer process support
  *
  * This plugin enables using Node.js APIs and native modules in Electron's
- * renderer process by creating ESM wrappers that use require() internally.
+ * renderer process by creating ESM wrappers that use globalThis.require()
+ * internally.
  *
  * **How it works:**
  *
- * 1. **Module Resolution**: Intercepts imports of electron and Node.js builtins
+ * 1. **Module Resolution**: Uses `resolveId` hook (enforce: 'pre') to intercept
+ *    imports of electron and Node.js builtins
  * 2. **Wrapper Generation**: Creates ESM wrapper files in .vite-electron-renderer/
  * 3. **Pre-bundling**: Optionally converts ESM packages to CJS for compatibility
  * 4. **Vite Configuration**: Adjusts various Vite settings for Electron
@@ -163,14 +161,13 @@ function relativeify(p: string): string {
  * **Generated wrapper example:**
  * ```js
  * // For 'fs' module:
- * const avoid_parse_require = require;
- * const _M_ = avoid_parse_require("fs");
+ * const _M_ = globalThis.require("fs");
  * export default _M_.default || _M_;
  * export const readFile = _M_.readFile;
  * // ... other exports
  * ```
  *
- * @param options - Plugin configuration options
+ * @param pluginOptions - Plugin configuration options
  * @returns Vite plugin object
  *
  * @example
@@ -181,24 +178,14 @@ function relativeify(p: string): string {
  * // With module resolution configuration
  * electronRenderer({
  *   resolve: {
- *     // Load serialport as CommonJS
  *     serialport: { type: 'cjs' },
- *     // Pre-bundle node-fetch to CJS
  *     'node-fetch': { type: 'esm' },
- *     // Custom build function
- *     'custom-module': {
- *       type: 'cjs',
- *       build: async ({ cjs, esm }) => {
- *         return await cjs('custom-module')
- *       }
- *     }
  *   }
  * })
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default function electronRenderer(
-  options: ElectronRendererOptions = {}
-): any {
+  pluginOptions: ElectronRendererOptions = {}
+): Plugin {
   /** Current working directory, normalized to use forward slashes */
   const cwd = normalizePath(process.cwd());
 
@@ -208,8 +195,14 @@ export default function electronRenderer(
   /** Cache directory for generated wrapper files */
   let cacheDir: string;
 
-  /** Keys from options.resolve that need custom handling */
+  /** Keys from pluginOptions.resolve that need custom handling */
   const resolveKeys: string[] = [];
+
+  /** Set of resolveKeys for fast lookup */
+  let resolveKeySet: Set<string> = new Set();
+
+  /** Map of module name → resolve config from plugin options */
+  const resolveConfigs = new Map<string, ModuleResolveConfig>();
 
   /**
    * Cache of resolved module paths
@@ -218,17 +211,41 @@ export default function electronRenderer(
    */
   const moduleCache = new Map<string, string>();
 
+  /**
+   * Generate and cache a wrapper file for a builtin module
+   */
+  function resolveBuiltin(moduleName: string): string {
+    let id = moduleCache.get(moduleName);
+    if (!id) {
+      id = path.posix.join(cacheDir, moduleName) + ".mjs";
+
+      if (!fs.existsSync(id)) {
+        ensureDir(path.dirname(id));
+        fs.writeFileSync(
+          id,
+          moduleName === "electron"
+            ? generateElectronSnippet()
+            : generateModuleSnippet(moduleName)
+        );
+      }
+
+      moduleCache.set(moduleName, id);
+    }
+    return id;
+  }
+
   return {
     name: PLUGIN_NAME,
+    enforce: "pre",
 
     /**
      * Vite config hook - runs before Vite's config is finalized
      *
-     * This is where we set up all the necessary configurations:
-     * - Determine project root and cache directory locations
-     * - Create module resolution aliases
-     * - Configure optimizeDeps exclusions
-     * - Apply Electron-specific build settings
+     * Sets up:
+     * - Project root and cache directory locations
+     * - Module resolve configs from plugin options
+     * - optimizeDeps exclusions
+     * - Electron-specific build settings
      */
     async config(
       config: UserConfig,
@@ -238,168 +255,107 @@ export default function electronRenderer(
       root = normalizePath(config.root ? path.resolve(config.root) : cwd);
 
       // Find node_modules directory (handles monorepo setups)
-      // Cache files are stored in node_modules/.vite-electron-renderer/
       const nodeModulesPath =
         findNodeModules(root) ?? path.posix.join(cwd, "node_modules");
       cacheDir = path.posix.join(nodeModulesPath, CACHE_DIR);
 
       // Process module resolve options from user configuration
-      // During build, ESM modules don't need special handling as they bundle correctly
-      for (const [key, option] of Object.entries(options.resolve ?? {})) {
+      for (const [key, option] of Object.entries(pluginOptions.resolve ?? {})) {
         if (command === "build" && option.type === "esm") {
           // ESM modules are handled correctly by Vite during production builds
           continue;
         }
         resolveKeys.push(key);
+        resolveConfigs.set(key, option);
       }
+      resolveKeySet = new Set(resolveKeys);
 
-      // Build the alias configuration for module resolution
-      const aliases: Alias[] = [
-        {
-          /**
-           * Primary alias: Handle electron and all Node.js builtins
-           *
-           * This regex matches:
-           * - 'electron'
-           * - 'fs', 'path', 'crypto', etc. (Node.js builtins)
-           * - 'node:fs', 'node:path', etc. (ESM-style node: imports)
-           *
-           * The optional (?:node:)? prefix handles both styles of imports
-           */
-          find: new RegExp(
-            `^(?:node:)?(${["electron", ...builtins].join("|")})$`
-          ),
-          replacement: "$1",
-
-          /**
-           * Custom resolver that generates wrapper files on-demand
-           *
-           * For each matched module:
-           * 1. Check if wrapper already exists in cache
-           * 2. If not, generate and write the wrapper file
-           * 3. Return the path to the wrapper file
-           */
-          async customResolver(source: string) {
-            let id = moduleCache.get(source);
-            if (!id) {
-              // Generate path for the wrapper file
-              id = path.posix.join(cacheDir, source) + ".mjs";
-
-              // Only write if file doesn't exist (avoids unnecessary disk I/O)
-              if (!fs.existsSync(id)) {
-                ensureDir(path.dirname(id));
-                fs.writeFileSync(
-                  id,
-                  source === "electron"
-                    ? generateElectronSnippet() // Special handling for electron
-                    : generateModuleSnippet(source) // Standard wrapper for builtins
-                );
-              }
-
-              moduleCache.set(source, id);
-            }
-            return { id };
-          },
-        },
-      ];
-
-      // Add aliases for user-configured modules (if any)
-      if (resolveKeys.length > 0) {
-        aliases.push({
-          /**
-           * Secondary alias: Handle user-configured modules
-           *
-           * Matches modules specified in options.resolve
-           */
-          find: new RegExp(`^(${resolveKeys.map(escapeRegex).join("|")})$`),
-          replacement: "$1",
-
-          /**
-           * Custom resolver for user-configured modules
-           *
-           * Supports three resolution strategies:
-           * 1. Custom build function (options.resolve[module].build)
-           * 2. CJS wrapping (type: 'cjs')
-           * 3. ESM pre-bundling (type: 'esm')
-           */
-          async customResolver(source, importer, resolveOptions) {
-            let id = moduleCache.get(source);
-            if (!id) {
-              // Use safe filename by replacing / and @ with underscores
-              const filename =
-                path.posix.join(cacheDir, source.replace(/[/@]/g, "_")) +
-                ".mjs";
-
-              if (fs.existsSync(filename)) {
-                // Use cached file if it exists
-                id = filename;
-              } else {
-                const resolved = options.resolve?.[source];
-                if (resolved) {
-                  let snippets: string | undefined;
-
-                  // Determine how to generate the wrapper
-                  if (typeof resolved.build === "function") {
-                    // User-provided custom build function
-                    snippets = await resolved.build({
-                      cjs: (module) =>
-                        Promise.resolve(generateModuleSnippet(module)),
-                      esm: (module, buildOptions) =>
-                        prebundleModule({
-                          module,
-                          outdir: cacheDir,
-                          buildOptions,
-                        }),
-                    });
-                  } else if (resolved.type === "cjs") {
-                    // CommonJS module - wrap with require()
-                    snippets = generateModuleSnippet(source);
-                  } else if (resolved.type === "esm") {
-                    // ESM module - pre-bundle to CJS then wrap
-                    snippets = await prebundleModule({
-                      module: source,
-                      outdir: cacheDir,
-                    });
-                  }
-
-                  // Log the pre-bundling action for visibility
-                  console.log(
-                    colors.gray(TAG),
-                    colors.cyan("pre-bundling"),
-                    colors.yellow(source)
-                  );
-
-                  // Write the wrapper file
-                  ensureDir(path.dirname(filename));
-                  fs.writeFileSync(filename, snippets ?? `/* ${TAG}: empty */`);
-                  id = filename;
-                } else {
-                  // No configuration found, pass through to Vite's default resolver
-                  id = source;
-                }
-              }
-
-              moduleCache.set(source, id);
-            }
-
-            // If we have a generated file, return it; otherwise delegate to Vite
-            return id === source
-              ? (this.resolve as Function)(source, importer, {
-                  skipSelf: true,
-                  ...resolveOptions,
-                }).then(
-                  (resolved: { id: string } | null) =>
-                    resolved || { id: source }
-                )
-              : { id };
-          },
-        });
-      }
-
-      // Apply all configuration modifications
-      modifyAlias(config, aliases);
+      // Apply configuration modifications
       modifyOptimizeDeps(config, [...electronBuiltins, ...resolveKeys]);
       adaptElectron(config);
+    },
+
+    /**
+     * Vite resolveId hook - intercepts module imports
+     *
+     * Replaces the deprecated `resolve.alias` with `customResolver` pattern.
+     * Runs with `enforce: 'pre'` to intercept before other plugins.
+     *
+     * Handles:
+     * - electron and Node.js builtins (fs, path, crypto, node:fs, etc.)
+     * - User-configured modules from pluginOptions.resolve
+     */
+    async resolveId(source: string, importer: string | undefined) {
+      // Strip node: prefix for matching
+      const cleanSource = source.startsWith("node:")
+        ? source.slice(5)
+        : source;
+
+      // Handle electron and Node.js builtins
+      if (builtinSet.has(cleanSource)) {
+        return resolveBuiltin(cleanSource);
+      }
+
+      // Handle user-configured modules
+      if (resolveKeySet.has(source)) {
+        let id = moduleCache.get(source);
+        if (!id) {
+          // Use safe filename by replacing / and @ with underscores
+          const filename =
+            path.posix.join(cacheDir, source.replace(/[/@]/g, "_")) + ".mjs";
+
+          if (fs.existsSync(filename)) {
+            id = filename;
+          } else {
+            const resolvedConfig = resolveConfigs.get(source);
+            if (resolvedConfig) {
+              let snippets: string | undefined;
+
+              if (typeof resolvedConfig.build === "function") {
+                snippets = await resolvedConfig.build({
+                  cjs: (module) =>
+                    Promise.resolve(generateModuleSnippet(module)),
+                  esm: (module, buildOptions) =>
+                    prebundleModule({
+                      module,
+                      outdir: cacheDir,
+                      buildOptions,
+                    }),
+                });
+              } else if (resolvedConfig.type === "cjs") {
+                snippets = generateModuleSnippet(source);
+              } else if (resolvedConfig.type === "esm") {
+                snippets = await prebundleModule({
+                  module: source,
+                  outdir: cacheDir,
+                });
+              }
+
+              console.log(
+                colors.gray(TAG),
+                colors.cyan("pre-bundling"),
+                colors.yellow(source)
+              );
+
+              ensureDir(path.dirname(filename));
+              fs.writeFileSync(filename, snippets ?? `/* ${TAG}: empty */`);
+              id = filename;
+            } else {
+              // No configuration found, delegate to Vite's default resolver
+              const resolved = await this.resolve(source, importer, {
+                skipSelf: true,
+              });
+              return resolved || { id: source };
+            }
+          }
+
+          moduleCache.set(source, id);
+        }
+        return id;
+      }
+
+      // Not handled by this plugin
+      return null;
     },
   };
 }
@@ -412,16 +368,7 @@ export default function electronRenderer(
  * an ESM wrapper for Vite compatibility.
  *
  * @param options - Pre-bundling options
- * @param options.module - Module name to bundle
- * @param options.outdir - Output directory for bundled file
- * @param options.buildOptions - Additional esbuild options
  * @returns ESM wrapper code for the bundled module
- *
- * @example
- * const wrapper = await prebundleModule({
- *   module: 'node-fetch',
- *   outdir: '/path/to/.vite-electron-renderer'
- * })
  */
 async function prebundleModule(options: {
   module: string;
@@ -429,7 +376,7 @@ async function prebundleModule(options: {
   buildOptions?: esbuild.BuildOptions;
 }): Promise<string> {
   const { module, outdir, buildOptions = {} } = options;
-  const cwd = normalizePath(process.cwd());
+  const cwdNorm = normalizePath(process.cwd());
 
   // Output as .cjs file (CommonJS)
   const outfile =
@@ -439,18 +386,18 @@ async function prebundleModule(options: {
   await esbuild.build({
     entryPoints: [module],
     outfile,
-    target: "node14", // Target Node.js 14 for broad compatibility
-    format: "cjs", // Output CommonJS format
-    bundle: true, // Bundle all dependencies
-    sourcemap: "inline", // Include sourcemaps for debugging
-    platform: "node", // Build for Node.js platform
-    external: electronBuiltins, // Don't bundle electron or Node.js builtins
-    ...buildOptions, // Allow user overrides
+    target: "node14",
+    format: "cjs",
+    bundle: true,
+    sourcemap: "inline",
+    platform: "node",
+    external: electronBuiltins,
+    ...buildOptions,
   });
 
   // Generate ESM wrapper that imports the bundled CJS file
   return generatePreBundledSnippet(
-    relativeify(path.posix.relative(cwd, outfile)),
+    relativeify(path.posix.relative(cwdNorm, outfile)),
     outfile
   );
 }
@@ -468,8 +415,6 @@ async function prebundleModule(options: {
  */
 function adaptElectron(config: UserConfig): void {
   // Use relative paths for assets
-  // This is required because Electron loads files via file:// protocol
-  // Absolute paths would break asset loading
   config.base ??= "./";
 
   // Initialize build options if not present
@@ -477,12 +422,9 @@ function adaptElectron(config: UserConfig): void {
   config.build.rollupOptions ??= {};
 
   // Disable Rollup's output object freezing
-  // Frozen objects can cause issues in Electron's renderer process
-  // when modules try to modify exports
   const output = config.build.rollupOptions.output;
   if (output) {
     if (Array.isArray(output)) {
-      // Handle multiple output configurations
       for (const o of output) {
         o.freeze ??= false;
       }
@@ -494,61 +436,28 @@ function adaptElectron(config: UserConfig): void {
   }
 
   // Configure @rollup/plugin-commonjs to ignore electron and Node.js builtins
-  // Without this, the plugin tries to transform require() calls for builtins,
-  // which would break in Electron's renderer process
   config.build.commonjsOptions ??= {};
   const existingIgnore = config.build.commonjsOptions.ignore;
 
   if (typeof existingIgnore === "function") {
-    // Preserve user's ignore function while adding our checks
     const userIgnore = existingIgnore;
     config.build.commonjsOptions.ignore = (id: string) => {
       if (userIgnore(id) === true) return true;
       return electronBuiltins.includes(id);
     };
   } else if (Array.isArray(existingIgnore)) {
-    // Add to existing ignore array
     existingIgnore.push(
       ...electronBuiltins.filter((b) => !existingIgnore.includes(b))
     );
   } else {
-    // Create new ignore array with all builtins
     config.build.commonjsOptions.ignore = [...electronBuiltins];
   }
-}
-
-/**
- * Add aliases to Vite's resolve configuration
- *
- * Handles both array and object alias formats, normalizing to array format
- * for easier manipulation.
- *
- * @param config - Vite user configuration to modify
- * @param aliases - Aliases to add
- */
-function modifyAlias(config: UserConfig, aliases: Alias[]): void {
-  config.resolve ??= {};
-  config.resolve.alias ??= [];
-
-  // Convert object format to array format if necessary
-  // Object format: { 'foo': '/path/to/foo' }
-  // Array format: [{ find: 'foo', replacement: '/path/to/foo' }]
-  if (!Array.isArray(config.resolve.alias)) {
-    config.resolve.alias = Object.entries(config.resolve.alias).map(
-      ([find, replacement]) => ({ find, replacement })
-    );
-  }
-
-  // Append our aliases to the configuration
-  (config.resolve.alias as Alias[]).push(...aliases);
 }
 
 /**
  * Add modules to Vite's optimizeDeps.exclude list
  *
  * Modules in this list are not pre-bundled by Vite's dependency optimizer.
- * We exclude user-configured modules because we handle their resolution
- * ourselves through the custom resolver.
  *
  * @param config - Vite user configuration to modify
  * @param exclude - Module names to exclude from pre-bundling
@@ -557,7 +466,6 @@ function modifyOptimizeDeps(config: UserConfig, exclude: string[]): void {
   config.optimizeDeps ??= {};
   config.optimizeDeps.exclude ??= [];
 
-  // Add each module if not already in the list
   for (const str of exclude) {
     if (!config.optimizeDeps.exclude.includes(str)) {
       config.optimizeDeps.exclude.push(str);
@@ -566,28 +474,9 @@ function modifyOptimizeDeps(config: UserConfig, exclude: string[]): void {
 }
 
 /**
- * Escape special regex characters in a string
- *
- * Used when creating regex patterns from module names that might contain
- * special characters like @ (scoped packages) or dots.
- *
- * @param str - String to escape
- * @returns Escaped string safe for use in regex
- *
- * @example
- * escapeRegex('@scope/package') // '@scope\\/package'
- * escapeRegex('file.js') // 'file\\.js'
- */
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/**
  * Named export for alternative import style
  *
  * @example
  * import { renderer } from 'plugin-vite-electron-renderer'
- * // instead of
- * import electronRenderer from 'plugin-vite-electron-renderer'
  */
 export { electronRenderer as renderer };

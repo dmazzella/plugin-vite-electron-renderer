@@ -42,13 +42,15 @@
     "lint": "eslint src --ext .ts",
     "prepublishOnly": "npm run build && npm run test"
   },
+  "dependencies": {
+    "esbuild": "^0.27.0"
+  },
   "peerDependencies": {
     "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
     "electron": "^38.0.0",
-    "esbuild": "^0.27.0",
     "rollup": "^4.53.3",
     "typescript": "^5.9.3",
     "vite": "^7.0.0",
