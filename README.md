@@ -7,7 +7,7 @@ Modern Vite plugin for Electron Renderer process - enables using Node.js APIs an
 
 ## Features
 
-- 🚀 **Vite 5, 6 & 7 Support** - Works with all modern Vite versions
+- 🚀 **Vite 5, 6, 7 & 8 Support** - Works with all modern Vite versions
 - ⚡ **Electron 32+ Support** - Updated for modern Electron
 - 📦 **Node.js Built-ins** - Use `fs`, `path`, `crypto`, etc. in renderer
 - 🔌 **Native Modules** - Support for C/C++ native addons like `serialport`, `sqlite3`
